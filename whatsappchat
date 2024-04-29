@@ -1,0 +1,209 @@
+#here we will have the data from a whatsapp .zipfile coming in and being opened up
+    #We will have to review the .zip struct
+        #the zip struct has a lot of files includig pdfs documents images excel files text files and also 
+        # JPEG images (.jpg)
+        # PDF documents (.pdf)
+        # Text files (.txt)
+        # Excel files (.xlsx)
+    #in this database we will also be able to store who the chat was with also for eg we will have a function when we drop the .zip  because that is named "WhatsApp Chat with +91 74060 56171.zip"
+        #so we will immdeiately store the first part of our chat ids here in a variable 
+              # eg "pratik" :"74060 56171"
+              # we must also remember that within the chat.txt file the message format is in this format "22/03/2024, 10:14 - pratik: <message here> "
+                     #the usernames who sent the message also will play arole in the id the username in the eg above is pratik ie me which will be stored in a variable below for inference.
+
+from openai import OpenAI
+from groq import Groq
+import pandas as pd
+import json
+import base64
+import requests
+import pdfplumber
+
+openkey = ""
+groqkey = ""
+
+clientopenai = OpenAI(api_key=openkey)
+clientgroq = Groq(api_key=groqkey)
+
+watchtower =  """        
+        # ".jpg" : gpt4vison
+        # .txt : grok-ollama-3
+        # .pdf : pdfinterpreter
+        # .xlsx : xlsxinterpreter
+"""
+
+
+zipfile = r""
+
+def openzip(zipfile):
+    pass
+
+filelist = openzip(zipfile)
+
+
+#from the text file we will extarct the datetime details for all the filetypes apart from the text itslef
+       #you will just have to go do a ctrl+f in the text file for the str("(file attached)") you will find the message for all the data.
+
+# we will have to come up with a sort of watch tower system where diffrent files are being passed to diffrent apis 
+    # eg 
+        # ".jpg" : gpt4vison
+        # .txt : grok-ollama-3
+        # .pdf : pdfinterpreter
+        # .xlsx : xlsxinterpreter
+    #This sort of a structure would serve beneficial for understanding how to direct the input data 
+    #A list will be created here.
+
+
+# we will have to give each of these files ids and also store them in a database mongoDB atlas 
+    # we will have to create the relational DB struct 
+        # sample structuture : I was thinking of giving id in such away that htough the id we get to know filetypeand date this data was stored 
+
+        ## so the date time required to create the id will be within the chat itself in a file named "WhatsApp Chat with +91 74060 56171.txt"
+            #in this database we will also be able to store who the chat was with also for eg we will have a function when we drop the .zip  because that is named "WhatsApp Chat with +91 74060 56171.zip"
+                # for id sake we will have to assign names to phone numbers because when we are querying remembering phone no. will be hard qureying via name will be better.
+                # so a sample id would look - {username}:{username}/{contactname}:pdf:24:07:2024:0001  (<username>:<message from>:<file type>:<dd>:<mm>:<yyyy>:<+1>)
+                    #so this +1 increment will symbolise the actual serial no. of the message on any given day.
+
+
+
+#FUNCTIONS TO PROCESS THE FILE TYPES 
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+    return f"data:image/jpeg;base64,{encoded_string}"
+
+def gpt4vison(image_path):
+
+    base64_image = encode_image(image_path)
+
+    headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {openkey}"
+    }
+
+    payload = {
+    "model": "gpt-4-turbo",
+    #"response_format" = {"type": "json_object"}},
+    "messages": [
+        {
+        "role": "user",
+        "content": [
+            {
+            "type": "text",
+            "text": "describe this image"
+            },
+            {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{base64_image}"
+            }
+            }
+        ]
+        }
+    ],
+    "max_tokens": 300
+    }
+
+    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    response_json = response.json()
+
+    # Extracting the 'content' from the response
+    if response_json and 'choices' in response_json and len(response_json['choices']) > 0:
+        content = response_json['choices'][0]['message']['content']
+    else:
+        content = "No content found or error in response."
+
+    print(content)  # If you want to print the content to console
+    return content  
+
+
+def grokollama3():
+
+    system = """"""
+    user = """"""
+
+    completion = clientgroq.chat.completions.create(
+    model="llama3-70b-8192",
+    messages=[
+        {
+            "role": "system",
+            "content": f"Output only valid JSON object without any trailing or leading character's.{system}"
+        },
+        {
+            "role": "user",
+            "content": f"{user}"
+        }
+    ],
+    temperature=0.78,
+    max_tokens=1024,
+    top_p=1,
+    stream=False,
+    response_format={"type": "json_object"},
+    stop=None,)
+
+    try:
+        content = completion.choices[0].message.content  # Access the JSON content directly
+        reply = json.loads(content)  # Convert JSON string to Python dictionary
+        print(reply)
+    except AttributeError:
+        print("Error: The message content is not accessible.")
+    except json.JSONDecodeError:
+        print("Error: The content is not properly formatted as JSON.")
+
+
+
+def pdfinterpeter(filepath):
+    text = ''
+    with pdfplumber.open(filepath) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() + '\n'  # Append text from each page with a newline
+    return text
+   
+
+
+def xlsxinterpeter(filepath):
+    text = ''
+    if filepath.endswith('.xlsx'):
+        xls = pd.ExcelFile(filepath)
+        for sheet_name in xls.sheet_names:
+            df = pd.read_excel(xls, sheet_name=sheet_name)
+            text += f"Sheet name: {sheet_name}\n"
+            text += "Headers: " + ", ".join(df.columns) + "\n"
+            text += "Sample data:\n"
+            text += df.head().to_string(index=False) + "\n\n"  # Show sample data without the index
+    elif filepath.endswith('.csv'):
+        df = pd.read_csv(filepath)
+        text += "CSV Headers: " + ", ".join(df.columns) + "\n"
+        text += "Sample data:\n"
+        text += df.head().to_string(index=False) + "\n"  # Show sample data without the index
+    return text
+
+# once all the data is converted into text we can start generating the embeddings
+    #the data rite nwo would be looking like this 
+    ## id : {username}:{username}/{contactname}:pdf:24:07:2024:0001 done
+    # file : attatched file                                         done        
+    # desc : "text"                                                 done
+    # desc embeddings : [floats]                                    next
+
+def generateembeddings():
+
+    response = clientopenai.embeddings.create(
+    input="Your text string goes here",
+    model="text-embedding-3-small")
+
+    print(response.data[0].embedding)
+    return (response.data[0].embedding)
+    #pass
+
+
+#the finaldata will look somwthing like this 
+
+## id : {username}:{username}/{contactname}:pdf:24:07:2024:0001 done
+# file : attatched file                                         done        
+# desc : "text"                                                 done
+# desc embeddings : [floats]                                    done
+
+#once all the embeddings are generated and we have our data ready in relational format we can start storing the data in the mongo DB atlas database that uses grid fs system.
+
+# we will not be able to version chats into rage the only way to do that would be to input the chat from the corresponding day 
+# we can probably achieve this by storing the old zip file in the database as well and when a new file is uploaded we subtract them. 
